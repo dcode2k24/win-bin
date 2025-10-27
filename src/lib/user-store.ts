@@ -1,8 +1,6 @@
-
 'use server';
 
-import fs from 'fs/promises';
-import path from 'path';
+import { kv } from '@vercel/kv';
 
 // Define the structure of a Bottle
 export interface Bottle {
@@ -20,50 +18,7 @@ export interface UserData {
   ecoCoins: number;
 }
 
-// Define the structure of the entire data store (a dictionary of users)
-type UserStore = Record<string, UserData>;
-
-const MAX_ACCOUNTS = 100;
-// Use path.join to create a platform-independent file path
-// process.cwd() points to the root of the Next.js project
-const dataFilePath = path.join(process.cwd(), 'user-data.json');
-
-// --- Helper Functions to Read/Write from the JSON file ---
-
-/**
- * Reads the entire user store from the JSON file.
- * If the file doesn't exist, it returns an empty object.
- */
-async function readStore(): Promise<UserStore> {
-  try {
-    const data = await fs.readFile(dataFilePath, 'utf-8');
-    return JSON.parse(data);
-  } catch (error: any) {
-    // If the file doesn't exist (ENOENT), it's not an error, just return empty.
-    if (error.code === 'ENOENT') {
-      return {};
-    }
-    // For any other errors, log them.
-    console.error('Failed to read user store:', error);
-    return {};
-  }
-}
-
-/**
- * Writes the entire user store to the JSON file.
- */
-async function writeStore(store: UserStore): Promise<boolean> {
-  try {
-    // Use JSON.stringify with indentation for readability
-    await fs.writeFile(dataFilePath, JSON.stringify(store, null, 2), 'utf-8');
-    return true;
-  } catch (error) {
-    console.error('Failed to write user store:', error);
-    return false;
-  }
-}
-
-// --- Public API Functions for User Management ---
+// --- Public API Functions for User Management using Vercel KV ---
 
 /**
  * Retrieves a user's data from the store.
@@ -71,41 +26,42 @@ async function writeStore(store: UserStore): Promise<boolean> {
  * @returns The user's data or null if not found.
  */
 export async function getUser(mobile: string): Promise<UserData | null> {
-  const store = await readStore();
-  return store[mobile] || null;
+  try {
+    const userData = await kv.get<UserData>(`user:${mobile}`);
+    return userData;
+  } catch (error) {
+    console.error('Failed to read from Vercel KV:', error);
+    return null;
+  }
 }
 
 /**
  * Creates a new user and adds them to the store.
  * @param name The user's name.
  * @param mobile The user's mobile number.
- * @returns The newly created user's data or null if the store is full.
+ * @returns The newly created user's data or null on failure.
  */
 export async function createUser(name: string, mobile: string): Promise<UserData | null> {
-  const store = await readStore();
+  try {
+    const existingUser = await getUser(mobile);
+    if (existingUser) {
+      console.warn(`User with mobile ${mobile} already exists.`);
+      return existingUser;
+    }
 
-  if (Object.keys(store).length >= MAX_ACCOUNTS) {
-    console.warn('User store is full. Cannot create new user.');
-    return null; // Indicate that the store is full
+    const newUser: UserData = {
+      name,
+      mobile,
+      bottles: [],
+      ecoCoins: 0,
+    };
+
+    await kv.set(`user:${mobile}`, newUser);
+    return newUser;
+  } catch (error) {
+    console.error('Failed to create user in Vercel KV:', error);
+    return null;
   }
-
-  if (store[mobile]) {
-    // This case should ideally be handled by the calling logic, but we can log it.
-    console.warn(`User with mobile ${mobile} already exists.`);
-    return store[mobile];
-  }
-
-  const newUser: UserData = {
-    name,
-    mobile,
-    bottles: [],
-    ecoCoins: 0,
-  };
-
-  store[mobile] = newUser;
-  await writeStore(store);
-
-  return newUser;
 }
 
 /**
@@ -115,15 +71,21 @@ export async function createUser(name: string, mobile: string): Promise<UserData
  * @returns True if the update was successful, false otherwise.
  */
 export async function updateUser(mobile: string, updates: Partial<UserData>): Promise<boolean> {
-  const store = await readStore();
+  try {
+    const existingUser = await getUser(mobile);
 
-  if (!store[mobile]) {
-    console.error(`User with mobile ${mobile} not found for update.`);
+    if (!existingUser) {
+      console.error(`User with mobile ${mobile} not found for update.`);
+      return false;
+    }
+
+    // Merge the existing data with the new updates
+    const updatedUser = { ...existingUser, ...updates };
+    
+    await kv.set(`user:${mobile}`, updatedUser);
+    return true;
+  } catch (error) {
+    console.error('Failed to update user in Vercel KV:', error);
     return false;
   }
-
-  // Merge the existing data with the new updates
-  store[mobile] = { ...store[mobile], ...updates };
-  
-  return await writeStore(store);
 }
