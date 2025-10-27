@@ -1,0 +1,101 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 94%; /* #F0F0F0 Light Grey */
+    --foreground: 240 10% 3.9%; /* Darker text for contrast */
+
+    --card: 0 0% 100%; /* White cards */
+    --card-foreground: 240 10% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+
+    --primary: 120 39% 49%; /* #4CAF50 Green */
+    --primary-foreground: 0 0% 100%; /* White */
+
+    --secondary: 0 0% 85%; /* Slightly darker grey for secondary elements */
+    --secondary-foreground: 240 10% 3.9%;
+
+    --muted: 0 0% 80%; /* Muted grey */
+    --muted-foreground: 0 0% 45.1%; /* Mid grey for muted text */
+
+    --accent: 217 91% 59%; /* #2196F3 Blue */
+    --accent-foreground: 0 0% 100%; /* White */
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 85%; /* Border color, matches secondary or slightly darker */
+    --input: 0 0% 90%; /* Input background, slightly different from main background */
+    --ring: 217 91% 59%; /* Accent color for focus rings */
+
+    --radius: 0.5rem;
+
+    /* Retaining sidebar variables from original, though less used in mobile-first */
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 94%; /* Light Grey (for dark mode text) */
+
+    --card: 240 5% 10%;
+    --card-foreground: 0 0% 94%;
+
+    --popover: 240 5% 10%;
+    --popover-foreground: 0 0% 94%;
+
+    --primary: 120 39% 49%; /* Green */
+    --primary-foreground: 0 0% 100%; /* White */
+
+    --secondary: 240 4% 15%;
+    --secondary-foreground: 0 0% 94%;
+
+    --muted: 240 4% 20%;
+    --muted-foreground: 0 0% 63.9%;
+
+    --accent: 217 91% 59%; /* Blue */
+    --accent-foreground: 0 0% 100%; /* White */
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 4% 15%;
+    --input: 240 4% 20%;
+    --ring: 217 91% 59%; /* Blue */
+
+    /* Dark theme sidebar variables */
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
