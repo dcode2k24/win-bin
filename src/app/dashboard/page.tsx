@@ -11,11 +11,13 @@ import { RedeemCard } from "@/components/dashboard/redeem-card";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Package, Clock, Loader2, Trash2, CheckCircle, AlertTriangle, Camera, HelpCircle, Mail, Code } from "lucide-react";
+import { Package, Clock, Loader2, CheckCircle, AlertTriangle, Camera, HelpCircle, Mail, Code, ArrowRight } from "lucide-react";
 import type { Bottle } from "@/contexts/user-context";
 import { Button } from "@/components/ui/button";
 import { suggestBottleType, SuggestBottleTypeOutput } from "@/ai/flows/suggest-bottle-type";
 import { useToast } from "@/hooks/use-toast";
+
+type ValidationStep = "identify" | "confirm" | "done";
 
 interface DetectedBottle {
   type: string;
@@ -26,6 +28,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { toast } = useToast();
 
+  const [validationStep, setValidationStep] = useState<ValidationStep>("identify");
   const [isDetecting, setIsDetecting] = useState(false);
   const [detectedBottle, setDetectedBottle] = useState<DetectedBottle | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +43,6 @@ export default function DashboardPage() {
     }
   }, [user, router]);
   
-  // Request camera permission on component mount
   useEffect(() => {
     const getCameraPermission = async () => {
       try {
@@ -62,7 +64,6 @@ export default function DashboardPage() {
 
     getCameraPermission();
 
-    // Cleanup function to stop video stream
     return () => {
       if (videoRef.current && videoRef.current.srcObject) {
         const stream = videoRef.current.srcObject as MediaStream;
@@ -71,65 +72,76 @@ export default function DashboardPage() {
     };
   }, [toast]);
 
-  const handleAIDetection = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || isDetecting) return;
+  const captureFrame = (): string => {
+    if (!videoRef.current || !canvasRef.current) {
+      throw new Error("Camera or canvas not ready.");
+    }
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error("Could not get canvas context");
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg');
+  };
 
+  const handleIdentifyBottle = useCallback(async () => {
     setIsDetecting(true);
     setError(null);
     setDetectedBottle(null);
 
     try {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
+      const dataUri = captureFrame();
+      const aiResult: SuggestBottleTypeOutput = await suggestBottleType({ photoDataUri: dataUri, validationStep: 'identify' });
 
-      // Set canvas dimensions to match video
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const context = canvas.getContext('2d');
-      if (!context) {
-        throw new Error("Could not get canvas context");
-      }
-      
-      // Draw the current video frame onto the canvas
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // Convert the canvas image to a data URI
-      const dataUri = canvas.toDataURL('image/jpeg');
-
-      const aiResult: SuggestBottleTypeOutput = await suggestBottleType({ photoDataUri: dataUri });
-
-      if (aiResult.isBottle && aiResult.suggestions && aiResult.suggestions.length > 0) {
+      if (aiResult.isPlasticBottle && aiResult.suggestions && aiResult.suggestions.length > 0) {
         const firstSuggestion = aiResult.suggestions[0];
-        setDetectedBottle({
-          type: firstSuggestion.type,
-        });
+        setDetectedBottle({ type: firstSuggestion.type });
+        setValidationStep("confirm"); // Move to the next step
       } else {
-        setError("AI did not detect a plastic bottle. Please try again.");
+        setError("This doesn't look like a plastic bottle. Please try again.");
       }
     } catch (err) {
-      console.error("AI detection failed:", err);
-      setError("An error occurred during analysis. Please try again later.");
+      console.error("AI identification failed:", err);
+      setError("An error occurred during analysis. Please try again.");
     } finally {
       setIsDetecting(false);
     }
-  }, [isDetecting]);
+  }, []);
 
-  const handleAddBottle = () => {
-    if (detectedBottle) {
-      addBottle(detectedBottle.type, 0); // Size is no longer detected, so pass 0
-      setDetectedBottle(null); 
-      setError(null);
+  const handleConfirmDeposit = useCallback(async () => {
+    if (!detectedBottle) return;
+
+    setIsDetecting(true);
+    setError(null);
+
+    try {
+      const dataUri = captureFrame();
+      const aiResult: SuggestBottleTypeOutput = await suggestBottleType({ photoDataUri: dataUri, validationStep: 'confirm' });
+
+      if (aiResult.isDeposited) {
+        addBottle(detectedBottle.type, 0); // Size is not used
+        setValidationStep("done"); // Mark as completed
+      } else {
+        setError("Deposit not confirmed. Please ensure the bottle goes into the bin clearly.");
+      }
+    } catch (err) {
+      console.error("AI confirmation failed:", err);
+      setError("An error occurred during confirmation. Please try again.");
+    } finally {
+      setIsDetecting(false);
     }
-  };
-  
-  const handleRetry = () => {
+  }, [addBottle, detectedBottle]);
+
+  const handleResetScanner = () => {
     setError(null);
     setDetectedBottle(null);
-    // User can just click "Scan" again
+    setValidationStep("identify");
   };
-
-  // If user is not logged in, redirect them.
+  
   if (!user) {
     return (
       <div className="flex flex-col min-h-screen">
@@ -141,6 +153,63 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const renderScannerContent = () => {
+    if (isDetecting) {
+        return (
+            <div className="flex items-center gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span>AI is analyzing the image...</span>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex flex-col items-center gap-2">
+                <p className="text-destructive">{error}</p>
+                <Button onClick={handleResetScanner} variant="outline">Try Again</Button>
+            </div>
+        );
+    }
+
+    switch (validationStep) {
+        case 'identify':
+            return (
+                <Button onClick={handleIdentifyBottle} disabled={isDetecting || hasCameraPermission !== true} size="lg">
+                    <Camera className="mr-2 h-5 w-5" />
+                    Scan Bottle
+                </Button>
+            );
+        case 'confirm':
+            return (
+                <div className="flex flex-col items-center gap-3">
+                    <div className="flex items-center gap-2 text-lg">
+                        <CheckCircle className="h-7 w-7 text-green-500" />
+                        <p>Detected: <span className="font-semibold">{detectedBottle?.type}</span></p>
+                    </div>
+                    <p className="text-muted-foreground text-center">Now, show the bottle going into a bin and confirm the deposit.</p>
+                    <Button onClick={handleConfirmDeposit} disabled={isDetecting} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                        Confirm Deposit
+                        <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                    <Button onClick={handleResetScanner} variant="link" className="text-sm">Cancel</Button>
+                </div>
+            );
+        case 'done':
+            return (
+                <div className="flex flex-col items-center gap-3">
+                     <div className="flex items-center gap-2 text-lg">
+                        <CheckCircle className="h-7 w-7 text-green-500" />
+                        <p>Deposit Confirmed! Coins added.</p>
+                    </div>
+                    <Button onClick={handleResetScanner} variant="outline">Scan Another Bottle</Button>
+                </div>
+            );
+        default:
+             return null;
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-secondary">
@@ -158,15 +227,14 @@ export default function DashboardPage() {
                     <Camera className="h-6 w-6" /> Bottle Scanner
                 </CardTitle>
                 <CardDescription>
-                    Point your camera at a plastic bottle and click "Scan Bottle" to identify it.
+                  {validationStep === 'identify' && "Step 1: Point your camera at a plastic bottle and click 'Scan Bottle'."}
+                  {validationStep === 'confirm' && "Step 2: Show the bottle going into a bin and click 'Confirm Deposit'."}
+                  {validationStep === 'done' && "Thank you for recycling!"}
                 </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center justify-center p-6 text-center space-y-4">
                 <div className="w-full max-w-md bg-black rounded-lg overflow-hidden shadow-inner relative aspect-video">
-                  {/* The hidden canvas for capturing frames */}
                   <canvas ref={canvasRef} className="hidden"></canvas>
-                  
-                  {/* The video element for the camera stream */}
                   <video ref={videoRef} className="w-full h-full object-cover" autoPlay playsInline muted />
 
                   {hasCameraPermission === false && (
@@ -184,32 +252,7 @@ export default function DashboardPage() {
                   )}
                 </div>
 
-                {isDetecting ? (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                        <span>AI is analyzing the image...</span>
-                    </div>
-                ) : error ? (
-                    <div className="flex flex-col items-center gap-2">
-                        <p className="text-destructive">{error}</p>
-                        <Button onClick={handleRetry} variant="outline">Try Again</Button>
-                    </div>
-                ) : detectedBottle ? (
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="flex items-center gap-2 text-lg">
-                            <CheckCircle className="h-7 w-7 text-green-500" />
-                            <p>Detected: <span className="font-semibold">{detectedBottle.type}</span></p>
-                        </div>
-                        <Button onClick={handleAddBottle} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                            Add This Bottle
-                        </Button>
-                    </div>
-                ) : (
-                   <Button onClick={handleAIDetection} disabled={isDetecting || hasCameraPermission !== true} size="lg">
-                     <Camera className="mr-2 h-5 w-5" />
-                     Scan Bottle
-                   </Button>
-                )}
+                {renderScannerContent()}
             </CardContent>
         </Card>
 
@@ -279,5 +322,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-    
